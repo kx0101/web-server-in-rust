@@ -9,7 +9,7 @@ pub struct ThreadPool {
     sender: mpsc::Sender<Job>,
 }
 
-struct Job;
+type Job = Box<dyn FnOnce() + Send + 'static>;
 
 #[allow(dead_code)]
 struct Worker {
@@ -19,8 +19,12 @@ struct Worker {
 
 impl Worker {
     fn new(id: usize, receiver: Arc<Mutex<Receiver<Job>>>) -> Worker {
-        let thread = std::thread::spawn(|| {
-            receiver;
+        let thread = std::thread::spawn(move || loop {
+            let job = receiver.lock().unwrap().recv().unwrap();
+
+            println!("Worker {id} is waiting for a job");
+
+            job();
         });
 
         Worker { id, thread }
@@ -51,9 +55,11 @@ impl ThreadPool {
         ThreadPool { workers, sender }
     }
 
-    pub fn execute<F>(&self, _f: F)
+    pub fn execute<F>(&self, f: F)
     where
         F: FnOnce() + Send + 'static,
     {
+        let job = Box::new(f);
+        self.sender.send(job).unwrap();
     }
 }
